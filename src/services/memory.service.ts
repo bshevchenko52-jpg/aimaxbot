@@ -49,6 +49,25 @@ export async function getHistoryForLlm(sessionId: number): Promise<Array<{ role:
   return all.slice(-cfg.MAX_HISTORY_MESSAGES);
 }
 
+/** Последние N сессий пользователя (для /history). */
+export async function getRecentSessions(userId: number, limit = 10) {
+  return prisma.session.findMany({
+    where: { userId },
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+    select: { id: true, isActive: true, messages: true, updatedAt: true },
+  });
+}
+
+/** Получить сообщения конкретной сессии. */
+export async function getSessionMessages(sessionId: number, userId: number) {
+  const session = await prisma.session.findFirst({
+    where: { id: sessionId, userId },
+  });
+  if (!session) return null;
+  return parseStoredMessages(session.messages);
+}
+
 export async function appendExchange(sessionId: number, userText: string, assistantText: string): Promise<void> {
   const cfg = getConfig();
   const maxStored = cfg.MAX_HISTORY_MESSAGES * 2;

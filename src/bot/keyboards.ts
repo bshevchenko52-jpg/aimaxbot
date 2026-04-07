@@ -9,6 +9,7 @@ export function mainMenu() {
       Keyboard.button.callback('Статус', 'status'),
     ],
     [Keyboard.button.callback('Подписка Premium', 'subscribe')],
+    [Keyboard.button.callback('История диалогов', 'history')],
     [Keyboard.button.callback('Услуги и цены', 'services')],
     [Keyboard.button.link('Поддержка', SUPPORT_URL)],
   ]);

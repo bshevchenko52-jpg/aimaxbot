@@ -49,7 +49,7 @@ async function buildStatusMarkdown(user: DbUser): Promise<string> {
 async function sendWelcome(ctx: Context) {
   const text =
     '**Привет.** Я AI-ассистент. Напишите сообщение — отвечу в контексте диалога.\n\n' +
-    'Команды: /new — новый диалог, /status — лимиты и подписка, /subscribe — оплата, /cancel — отключить автопродление, /help.';
+    'Команды: /new — новый диалог, /history — старые диалоги, /status — лимиты, /subscribe — оплата, /cancel — отключить автопродление, /help.';
   await ctx.reply(text, { format: 'markdown', attachments: [mainMenu()] });
 }
 
@@ -84,6 +84,7 @@ export function registerBot(bot: Bot): void {
   bot.command('help', async (ctx) => {
     await ctx.reply(
       '**/new** — начать новый диалог (очистить память).\n' +
+        '**/history** — посмотреть старые диалоги.\n' +
         '**/status** — тариф и оставшийся лимит символов на сегодня.\n' +
         '**/subscribe** — оплата подписки Premium (ЮKassa, 30 дней).\n' +
         '**/cancel** — отключить автопродление подписки.\n' +
@@ -98,7 +99,7 @@ export function registerBot(bot: Bot): void {
       const maxUser = resolveMaxUser(ctx);
       const user = await userService.getOrCreateByMaxUser(maxUser);
       await memoryService.startNewSession(user.id);
-      await ctx.reply('Контекст сброшен. Можно писать новое сообщение.', { attachments: [mainMenu()] });
+      await ctx.reply('Контекст сброшен. Можно писать новое сообщение.', { attachments: [backToMenu()] });
     } catch (e) {
       log.error('/new', e);
       await ctx.reply('Ошибка при создании сессии.');
@@ -114,6 +115,95 @@ export function registerBot(bot: Bot): void {
     } catch (e) {
       log.error('/status', e);
       await ctx.reply('Не удалось получить статус.');
+    }
+  });
+
+  bot.command('history', async (ctx) => {
+    try {
+      const maxUser = resolveMaxUser(ctx);
+      const user = await userService.getOrCreateByMaxUser(maxUser);
+      const sessions = await memoryService.getRecentSessions(user.id, 10);
+      if (sessions.length === 0) {
+        await ctx.reply('Диалогов пока нет.', { attachments: [mainMenu()] });
+        return;
+      }
+      const lines: string[] = ['**Последние диалоги:**\n'];
+      const buttons: Array<Array<ReturnType<typeof Keyboard.button.callback>>> = [];
+      for (const s of sessions) {
+        const msgs = memoryService.parseStoredMessages(s.messages);
+        const preview = msgs.find((m) => m.role === 'user')?.content ?? '(пусто)';
+        const short = preview.length > 50 ? preview.slice(0, 50) + '…' : preview;
+        const date = s.updatedAt.toISOString().slice(0, 10);
+        const active = s.isActive ? ' *(текущий)*' : '';
+        lines.push(`${date}${active} — ${short}`);
+        if (!s.isActive) {
+          buttons.push([Keyboard.button.callback(`${date} — ${short.slice(0, 30)}`, `hv_${s.id}`)]);
+        }
+      }
+      const kb = buttons.length > 0
+        ? Keyboard.inlineKeyboard([...buttons, [Keyboard.button.callback('Главное меню', 'main_menu')]])
+        : mainMenu();
+      await ctx.reply(lines.join('\n'), { format: 'markdown', attachments: [kb] });
+    } catch (e) {
+      log.error('/history', e);
+      await ctx.reply('Не удалось загрузить историю.');
+    }
+  });
+
+  bot.action(/^hv_\d+$/, async (ctx) => {
+    await ctx.answerOnCallback({}).catch(() => undefined);
+    try {
+      const payload = ctx.callback?.payload ?? '';
+      const sessionId = parseInt(payload.replace('hv_', ''), 10);
+      if (!sessionId) return;
+      const maxUser = resolveMaxUser(ctx);
+      const user = await userService.getOrCreateByMaxUser(maxUser);
+      const msgs = await memoryService.getSessionMessages(sessionId, user.id);
+      if (!msgs || msgs.length === 0) {
+        await ctx.reply('Диалог пуст или не найден.');
+        return;
+      }
+      const last = msgs.slice(-10);
+      const lines: string[] = ['**Диалог:**\n'];
+      for (const m of last) {
+        const prefix = m.role === 'user' ? '**Вы:**' : '**Бот:**';
+        const content = m.content.length > 300 ? m.content.slice(0, 300) + '…' : m.content;
+        lines.push(`${prefix} ${content}\n`);
+      }
+      if (msgs.length > 10) {
+        lines.unshift(`_(показаны последние 10 из ${msgs.length} сообщений)_\n`);
+      }
+      const resumeBtn = Keyboard.inlineKeyboard([
+        [Keyboard.button.callback('Продолжить этот диалог', `hr_${sessionId}`)],
+        [Keyboard.button.callback('Главное меню', 'main_menu')],
+      ]);
+      await ctx.reply(lines.join('\n'), { format: 'markdown', attachments: [resumeBtn] });
+    } catch (e) {
+      log.error('hv_ callback', e);
+      await ctx.reply('Не удалось загрузить диалог.');
+    }
+  });
+
+  // Возобновление старого диалога
+  bot.action(/^hr_\d+$/, async (ctx) => {
+    await ctx.answerOnCallback({ notification: 'Диалог восстановлен' }).catch(() => undefined);
+    try {
+      const payload = ctx.callback?.payload ?? '';
+      const sessionId = parseInt(payload.replace('hr_', ''), 10);
+      if (!sessionId) return;
+      const maxUser = resolveMaxUser(ctx);
+      const user = await userService.getOrCreateByMaxUser(maxUser);
+      // Деактивируем текущую сессию, активируем выбранную
+      await prisma.session.updateMany({ where: { userId: user.id, isActive: true }, data: { isActive: false } });
+      const restored = await prisma.session.updateMany({ where: { id: sessionId, userId: user.id }, data: { isActive: true } });
+      if (restored.count === 0) {
+        await ctx.reply('Диалог не найден.');
+        return;
+      }
+      await ctx.reply('Диалог восстановлен. Продолжайте общение.', { attachments: [backToMenu()] });
+    } catch (e) {
+      log.error('hr_ callback', e);
+      await ctx.reply('Не удалось восстановить диалог.');
     }
   });
 
@@ -190,7 +280,7 @@ export function registerBot(bot: Bot): void {
       const maxUser = resolveMaxUser(ctx);
       const user = await userService.getOrCreateByMaxUser(maxUser);
       await memoryService.startNewSession(user.id);
-      await ctx.reply('Новый диалог начат.', { attachments: [mainMenu()] });
+      await ctx.reply('Новый диалог начат.', { attachments: [backToMenu()] });
     } catch (e) {
       log.error('callback new_session', e);
       await ctx.reply('Ошибка.');
@@ -224,6 +314,39 @@ export function registerBot(bot: Bot): void {
   bot.action('main_menu', async (ctx) => {
     await ctx.answerOnCallback({}).catch(() => undefined);
     await ctx.reply('Главное меню:', { attachments: [mainMenu()] });
+  });
+
+  bot.action('history', async (ctx) => {
+    await ctx.answerOnCallback({}).catch(() => undefined);
+    try {
+      const maxUser = resolveMaxUser(ctx);
+      const user = await userService.getOrCreateByMaxUser(maxUser);
+      const sessions = await memoryService.getRecentSessions(user.id, 10);
+      if (sessions.length === 0) {
+        await ctx.reply('Диалогов пока нет.', { attachments: [mainMenu()] });
+        return;
+      }
+      const lines: string[] = ['**Последние диалоги:**\n'];
+      const buttons: Array<Array<ReturnType<typeof Keyboard.button.callback>>> = [];
+      for (const s of sessions) {
+        const msgs = memoryService.parseStoredMessages(s.messages);
+        const preview = msgs.find((m) => m.role === 'user')?.content ?? '(пусто)';
+        const short = preview.length > 50 ? preview.slice(0, 50) + '…' : preview;
+        const date = s.updatedAt.toISOString().slice(0, 10);
+        const active = s.isActive ? ' *(текущий)*' : '';
+        lines.push(`${date}${active} — ${short}`);
+        if (!s.isActive) {
+          buttons.push([Keyboard.button.callback(`${date} — ${short.slice(0, 30)}`, `hv_${s.id}`)]);
+        }
+      }
+      const kb = buttons.length > 0
+        ? Keyboard.inlineKeyboard([...buttons, [Keyboard.button.callback('Главное меню', 'main_menu')]])
+        : mainMenu();
+      await ctx.reply(lines.join('\n'), { format: 'markdown', attachments: [kb] });
+    } catch (e) {
+      log.error('callback history', e);
+      await ctx.reply('Не удалось загрузить историю.');
+    }
   });
 
   bot.action('status', async (ctx) => {
@@ -327,7 +450,7 @@ export function registerBot(bot: Bot): void {
       if (answer.length > 0) {
         await limitService.useChars(user.id, answer.length);
       }
-      await ctx.reply(answer, { format: 'markdown', attachments: [backToMenu()] });
+      await ctx.reply(answer, { format: 'markdown' });
     } catch (e) {
       log.error('message_created LLM', e);
       await ctx.reply('Сервис временно недоступен. Попробуйте позже.');
