@@ -51,16 +51,15 @@ export async function getHistoryForLlm(sessionId: number): Promise<Array<{ role:
 
 /** Последние N сессий пользователя (для /history). Пустые сессии (без сообщений) исключаются. */
 export async function getRecentSessions(userId: number, limit = 10) {
-  return prisma.session.findMany({
-    where: {
-      userId,
-      NOT: { messages: { equals: Prisma.JsonNull } },
-      messages: { not: { equals: [] } },
-    },
+  const rows = await prisma.session.findMany({
+    where: { userId },
     orderBy: { updatedAt: 'desc' },
-    take: limit,
+    take: limit * 4, // берём с запасом, т.к. будем фильтровать пустые
     select: { id: true, isActive: true, messages: true, updatedAt: true },
   });
+  return rows
+    .filter((s) => parseStoredMessages(s.messages).length > 0)
+    .slice(0, limit);
 }
 
 /** Получить сообщения конкретной сессии. */
