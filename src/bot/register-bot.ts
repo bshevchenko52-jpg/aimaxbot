@@ -237,14 +237,6 @@ export function registerBot(bot: Bot): void {
       const maxUser = resolveMaxUser(ctx);
       const user = await userService.getOrCreateByMaxUser(maxUser);
 
-      // H1: throttle на /subscribe — не чаще раза в минуту
-      const lastSub = subscribeThrottle.get(user.id) ?? 0;
-      if (Date.now() - lastSub < SUBSCRIBE_COOLDOWN_MS) {
-        await ctx.reply('Подождите минуту перед повторным запросом оплаты.');
-        return;
-      }
-      subscribeThrottle.set(user.id, Date.now());
-
       await subscriptionService.ensureSubscriptionRow(user.id);
 
       // B1: нужен email для чека (54-ФЗ)
@@ -254,6 +246,14 @@ export function registerBot(bot: Bot): void {
         await ctx.reply('Для формирования кассового чека (54-ФЗ) введите ваш email:');
         return;
       }
+
+      // H1: throttle — ставим только перед реальным запросом платежа
+      const lastSub = subscribeThrottle.get(user.id) ?? 0;
+      if (Date.now() - lastSub < SUBSCRIBE_COOLDOWN_MS) {
+        await ctx.reply('Подождите минуту перед повторным запросом оплаты.');
+        return;
+      }
+      subscribeThrottle.set(user.id, Date.now());
 
       const { confirmationUrl } = await yookassaPay.createSubscriptionCheckout(user.id, freshUser.email);
       await ctx.reply(
