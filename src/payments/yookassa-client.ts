@@ -40,7 +40,7 @@ function buildReceipt(userEmail: string, description: string, amount: string) {
         description,
         amount: { value: amount, currency: CurrencyEnum.RUB },
         vat_code: 1, // 1 = без НДС (УСН)
-        quantity: '1.00',
+        quantity: 1,
         payment_subject: 'service' as const,
         payment_mode: 'full_payment' as const,
       },

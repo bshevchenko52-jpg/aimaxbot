@@ -59,7 +59,7 @@ describe('createSubscriptionCheckout', () => {
     expect(payloadArg.save_payment_method).toBe(true);
     expect(payloadArg.capture).toBe(true);
     expect(payloadArg.receipt.customer.email).toBe('user@example.com');
-    expect(payloadArg.receipt.items[0].quantity).toBe('1.00');
+    expect(payloadArg.receipt.items[0].quantity).toBe(1);
     expect(payloadArg.receipt.tax_system_code).toBe(2);
   });
 
