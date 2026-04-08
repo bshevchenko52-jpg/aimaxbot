@@ -12,7 +12,7 @@ export function createApp(): Application {
   app.set('trust proxy', cfg.TRUST_PROXY);
 
   // Оферта и политика конфиденциальности
-  app.use(express.static(path.join(process.cwd(), 'public')));
+  app.use(express.static(path.join(process.cwd(), 'public'), { extensions: ['html'] }));
 
   app.get('/health', async (_req, res) => {
     try {
