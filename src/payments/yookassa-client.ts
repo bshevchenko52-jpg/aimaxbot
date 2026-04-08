@@ -64,7 +64,7 @@ export async function createSubscriptionCheckout(internalUserId: number, userEma
           return_url: c.YOOKASSA_RETURN_URL,
         },
         capture: true,
-        save_payment_method: true,
+        // save_payment_method: true — включить когда ЮKassa одобрит рекуррентные платежи
         description,
         receipt: buildReceipt(userEmail, description, amount),
         metadata: {
