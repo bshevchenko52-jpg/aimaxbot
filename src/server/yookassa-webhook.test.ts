@@ -39,6 +39,9 @@ vi.mock('../services/subscription.service', () => ({
 
 import { handleYooKassaWebhook } from './yookassa-webhook';
 
+/** Даём processPaymentSucceeded выполниться (fire-and-forget promise). */
+const flushAsync = () => new Promise((r) => setTimeout(r, 0));
+
 function mockRes(): Response {
   const res = {
     status: vi.fn().mockReturnThis(),
@@ -122,6 +125,7 @@ describe('handleYooKassaWebhook', () => {
     loadPayment.mockResolvedValue({ status: 'pending' });
     const res = mockRes();
     await handleYooKassaWebhook(req({}), res);
+    await flushAsync();
     expect(activatePremiumAfterPayment).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -139,6 +143,7 @@ describe('handleYooKassaWebhook', () => {
     prismaMock.transaction.findUnique.mockResolvedValue({ status: 'succeeded' });
     const res = mockRes();
     await handleYooKassaWebhook(req({}), res);
+    await flushAsync();
     expect(activatePremiumAfterPayment).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -156,6 +161,7 @@ describe('handleYooKassaWebhook', () => {
     prismaMock.transaction.findUnique.mockResolvedValue(null);
     const res = mockRes();
     await handleYooKassaWebhook(req({}), res);
+    await flushAsync();
     expect(activatePremiumAfterPayment).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -175,6 +181,7 @@ describe('handleYooKassaWebhook', () => {
     prismaMock.transaction.updateMany.mockResolvedValue({ count: 1 });
     const res = mockRes();
     await handleYooKassaWebhook(req({}), res);
+    await flushAsync();
     expect(prismaMock.transaction.updateMany).toHaveBeenCalledWith({
       where: { yookassaId: 'p-ren', status: { not: 'succeeded' } },
       data: { status: 'succeeded' },
@@ -198,6 +205,7 @@ describe('handleYooKassaWebhook', () => {
     prismaMock.transaction.findUnique.mockResolvedValue(null);
     const res = mockRes();
     await handleYooKassaWebhook(req({}), res);
+    await flushAsync();
     expect(activatePremiumAfterPayment).toHaveBeenCalledWith({
       userId: 3,
       paymentMethodId: 'pm_abc',

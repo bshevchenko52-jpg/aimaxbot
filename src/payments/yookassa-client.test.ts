@@ -39,7 +39,7 @@ describe('createSubscriptionCheckout', () => {
       },
     });
 
-    const result = await createSubscriptionCheckout(42);
+    const result = await createSubscriptionCheckout(42, 'test@example.com');
 
     expect(result.confirmationUrl).toBe('https://yookassa.ru/pay/abc123');
     expect(result.paymentId).toBe('pay-1');
@@ -52,18 +52,21 @@ describe('createSubscriptionCheckout', () => {
       confirmation: { type: 'redirect', confirmation_url: 'https://x.ru' },
     });
 
-    await createSubscriptionCheckout(99);
+    await createSubscriptionCheckout(99, 'user@example.com');
 
     const payloadArg = createPayment.mock.calls[0][0];
     expect(payloadArg.metadata.internal_user_id).toBe('99');
     expect(payloadArg.save_payment_method).toBe(true);
     expect(payloadArg.capture).toBe(true);
+    expect(payloadArg.receipt.customer.email).toBe('user@example.com');
+    expect(payloadArg.receipt.items[0].quantity).toBe('1.00');
+    expect(payloadArg.receipt.tax_system_code).toBe(2);
   });
 
   it('бросает если confirmation отсутствует (null)', async () => {
     createPayment.mockResolvedValue({ id: 'pay-3', confirmation: null });
 
-    await expect(createSubscriptionCheckout(1)).rejects.toThrow('Не получена ссылка на оплату от ЮKassa');
+    await expect(createSubscriptionCheckout(1, 'a@b.com')).rejects.toThrow('Не получена ссылка на оплату от ЮKassa');
   });
 
   it('бросает если confirmation.type не redirect', async () => {
@@ -72,7 +75,7 @@ describe('createSubscriptionCheckout', () => {
       confirmation: { type: 'embedded', token: 'tkn' },
     });
 
-    await expect(createSubscriptionCheckout(1)).rejects.toThrow('Не получена ссылка на оплату от ЮKassa');
+    await expect(createSubscriptionCheckout(1, 'a@b.com')).rejects.toThrow('Не получена ссылка на оплату от ЮKassa');
   });
 
   it('бросает если confirmation_url не строка', async () => {
@@ -81,7 +84,7 @@ describe('createSubscriptionCheckout', () => {
       confirmation: { type: 'redirect', confirmation_url: 12345 },
     });
 
-    await expect(createSubscriptionCheckout(1)).rejects.toThrow('Не получена ссылка на оплату от ЮKassa');
+    await expect(createSubscriptionCheckout(1, 'a@b.com')).rejects.toThrow('Не получена ссылка на оплату от ЮKassa');
   });
 });
 

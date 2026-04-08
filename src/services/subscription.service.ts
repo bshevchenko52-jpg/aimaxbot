@@ -170,7 +170,11 @@ export async function tryAutoRenew(): Promise<void> {
         continue;
       }
 
-      const userEmail = s.user.email ?? '';
+      const userEmail = s.user.email;
+      if (!userEmail) {
+        log.warn(`Auto-renew skip: нет email для чека 54-ФЗ, user ${s.userId}`);
+        continue;
+      }
       const payment = await yookassaPay.chargeRecurring(s.paymentMethodId, amount, {
         internal_user_id: String(s.userId),
         kind: 'renewal',

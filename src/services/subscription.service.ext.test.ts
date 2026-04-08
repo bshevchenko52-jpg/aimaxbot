@@ -166,7 +166,7 @@ describe('tryAutoRenew', () => {
       {
         userId: 11,
         paymentMethodId: 'pm_fail',
-        user: { maxUserId: '77', email: null },
+        user: { maxUserId: '77', email: 'fail@example.com' },
       },
     ]);
     mocks.chargeRecurring.mockRejectedValue(new Error('no funds'));

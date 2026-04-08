@@ -60,66 +60,64 @@ export async function handleYooKassaWebhook(req: Request, res: Response): Promis
     return;
   }
 
-  // B3: всегда возвращаем 200 — ЮKassa не будет ретраить при ошибках обработки
-  try {
-    const paymentId = notification.object.id;
-    const loaded = await yookassaPay.loadPayment(paymentId);
-    if (loaded.status !== 'succeeded') {
-      log.info(`YooKassa: loadPayment не succeeded [${loaded.status}] ${paymentId}`);
-      res.status(200).send('OK');
-      return;
-    }
+  // B3: возвращаем 200 СРАЗУ — ЮKassa ждёт ответ до 10 секунд
+  res.status(200).send('OK');
 
-    const dup = await prisma.transaction.findUnique({ where: { yookassaId: paymentId } });
-    if (dup?.status === 'succeeded') {
-      res.status(200).send('OK');
-      return;
-    }
+  // Обработка асинхронно после ответа
+  processPaymentSucceeded(notification.object.id).catch((e) => {
+    log.error('YooKassa webhook: ошибка обработки payment.succeeded', e);
+  });
+}
 
-    const meta = loaded.metadata ?? {};
-    const uidRaw = meta.internal_user_id;
-    const userId = typeof uidRaw === 'string' ? Number.parseInt(uidRaw, 10) : Number.NaN;
-    if (!Number.isFinite(userId) || userId <= 0) {
-      log.warn('YooKassa: нет internal_user_id в metadata', meta);
-      res.status(200).send('OK');
-      return;
-    }
-
-    const amount = loaded.amount?.value ?? '0.00';
-    const isRenewal = meta.kind === 'renewal';
-
-    if (isRenewal) {
-      // C2: атомарная идемпотентность — обновляем только если ещё не succeeded
-      const updated = await prisma.transaction.updateMany({
-        where: { yookassaId: paymentId, status: { not: 'succeeded' } },
-        data: { status: 'succeeded' },
-      });
-      if (updated.count > 0) {
-        await subscriptionService.extendPremiumAfterRecurring(userId);
-      }
-    } else {
-      const pm = loaded.payment_method;
-      const paymentMethodId =
-        pm &&
-        typeof pm === 'object' &&
-        'saved' in pm &&
-        pm.saved === true &&
-        'id' in pm &&
-        typeof pm.id === 'string'
-          ? pm.id
-          : null;
-      await subscriptionService.activatePremiumAfterPayment({
-        userId,
-        paymentMethodId,
-        yookassaId: paymentId,
-        amount,
-        recurring: false,
-      });
-    }
-  } catch (e) {
-    log.error('YooKassa webhook: ошибка обработки', e);
-    // B3: НЕ возвращаем 500 — ЮKassa не должна ретраить при ошибках на нашей стороне
+async function processPaymentSucceeded(paymentId: string): Promise<void> {
+  const loaded = await yookassaPay.loadPayment(paymentId);
+  if (loaded.status !== 'succeeded') {
+    log.info(`YooKassa: loadPayment не succeeded [${loaded.status}] ${paymentId}`);
+    return;
   }
 
-  res.status(200).send('OK');
+  const dup = await prisma.transaction.findUnique({ where: { yookassaId: paymentId } });
+  if (dup?.status === 'succeeded') {
+    return;
+  }
+
+  const meta = loaded.metadata ?? {};
+  const uidRaw = meta.internal_user_id;
+  const userId = typeof uidRaw === 'string' ? Number.parseInt(uidRaw, 10) : Number.NaN;
+  if (!Number.isFinite(userId) || userId <= 0) {
+    log.warn('YooKassa: нет internal_user_id в metadata', meta);
+    return;
+  }
+
+  const amount = loaded.amount?.value ?? '0.00';
+  const isRenewal = meta.kind === 'renewal';
+
+  if (isRenewal) {
+    // C2: атомарная идемпотентность — обновляем только если ещё не succeeded
+    const updated = await prisma.transaction.updateMany({
+      where: { yookassaId: paymentId, status: { not: 'succeeded' } },
+      data: { status: 'succeeded' },
+    });
+    if (updated.count > 0) {
+      await subscriptionService.extendPremiumAfterRecurring(userId);
+    }
+  } else {
+    const pm = loaded.payment_method;
+    const paymentMethodId =
+      pm &&
+      typeof pm === 'object' &&
+      'saved' in pm &&
+      pm.saved === true &&
+      'id' in pm &&
+      typeof pm.id === 'string'
+        ? pm.id
+        : null;
+    await subscriptionService.activatePremiumAfterPayment({
+      userId,
+      paymentMethodId,
+      yookassaId: paymentId,
+      amount,
+      recurring: false,
+    });
+  }
 }

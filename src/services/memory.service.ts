@@ -49,10 +49,14 @@ export async function getHistoryForLlm(sessionId: number): Promise<Array<{ role:
   return all.slice(-cfg.MAX_HISTORY_MESSAGES);
 }
 
-/** Последние N сессий пользователя (для /history). */
+/** Последние N сессий пользователя (для /history). Пустые сессии (без сообщений) исключаются. */
 export async function getRecentSessions(userId: number, limit = 10) {
   return prisma.session.findMany({
-    where: { userId },
+    where: {
+      userId,
+      NOT: { messages: { equals: Prisma.JsonNull } },
+      messages: { not: { equals: [] } },
+    },
     orderBy: { updatedAt: 'desc' },
     take: limit,
     select: { id: true, isActive: true, messages: true, updatedAt: true },
