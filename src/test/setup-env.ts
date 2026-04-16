@@ -21,6 +21,7 @@ const defaults: Record<string, string> = {
   SUBSCRIPTION_PRICE_RUB: '299',
   MAX_HISTORY_MESSAGES: '30',
   LOG_LEVEL: 'error',
+  ADMIN_MAX_USER_IDS: '',
 };
 
 for (const [key, value] of Object.entries(defaults)) {

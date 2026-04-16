@@ -25,6 +25,11 @@ const envSchema = z.object({
   SUBSCRIPTION_PRICE_RUB: z.coerce.number().positive().default(70),
   MAX_HISTORY_MESSAGES: z.coerce.number().int().positive().max(200).default(100),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  ADMIN_MAX_USER_IDS: z
+    .string()
+    .optional()
+    .default('')
+    .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean)),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

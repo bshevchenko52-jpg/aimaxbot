@@ -56,7 +56,8 @@ describe('createSubscriptionCheckout', () => {
 
     const payloadArg = createPayment.mock.calls[0][0];
     expect(payloadArg.metadata.internal_user_id).toBe('99');
-    expect(payloadArg.save_payment_method).toBe(true);
+    // save_payment_method отключён до одобрения ЮKassa
+    expect(payloadArg.save_payment_method).toBeUndefined();
     expect(payloadArg.capture).toBe(true);
     expect(payloadArg.receipt.customer.email).toBe('user@example.com');
     expect(payloadArg.receipt.items[0].quantity).toBe(1);

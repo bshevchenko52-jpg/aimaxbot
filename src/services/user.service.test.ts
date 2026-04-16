@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { upsert } = vi.hoisted(() => ({ upsert: vi.fn() }));
+const { upsert, mockGetConfig } = vi.hoisted(() => ({
+  upsert: vi.fn(),
+  mockGetConfig: vi.fn(() => ({ ADMIN_MAX_USER_IDS: [] as string[] })),
+}));
 
 vi.mock('../db/prisma', () => ({
   prisma: { user: { upsert } },
+}));
+
+vi.mock('../config', () => ({
+  getConfig: mockGetConfig,
 }));
 
 import type { User as MaxUser } from '@maxhub/max-bot-api/dist/core/network/api';
@@ -20,7 +27,10 @@ function maxUser(overrides: Partial<MaxUser> = {}): MaxUser {
 }
 
 describe('getOrCreateByMaxUser', () => {
-  beforeEach(() => upsert.mockReset());
+  beforeEach(() => {
+    upsert.mockReset();
+    mockGetConfig.mockReturnValue({ ADMIN_MAX_USER_IDS: [] });
+  });
 
   it('вызывает upsert с bigint maxUserId', async () => {
     upsert.mockResolvedValue({ id: 1 });
@@ -29,8 +39,8 @@ describe('getOrCreateByMaxUser', () => {
 
     expect(upsert).toHaveBeenCalledWith({
       where: { maxUserId: 42n },
-      create: { maxUserId: 42n, username: 'tester', name: 'Test User' },
-      update: { username: 'tester', name: 'Test User' },
+      create: { maxUserId: 42n, username: 'tester', name: 'Test User', isAdmin: false },
+      update: { username: 'tester', name: 'Test User', isAdmin: false },
     });
   });
 
@@ -51,5 +61,27 @@ describe('getOrCreateByMaxUser', () => {
     const result = await getOrCreateByMaxUser(maxUser());
 
     expect(result).toBe(dbUser);
+  });
+
+  it('ставит isAdmin=true если maxUserId в ADMIN_MAX_USER_IDS', async () => {
+    mockGetConfig.mockReturnValue({ ADMIN_MAX_USER_IDS: ['100', '200'] });
+    upsert.mockResolvedValue({ id: 1 });
+
+    await getOrCreateByMaxUser(maxUser({ user_id: 100 }));
+
+    const call = upsert.mock.calls[0][0];
+    expect(call.create.isAdmin).toBe(true);
+    expect(call.update.isAdmin).toBe(true);
+  });
+
+  it('ставит isAdmin=false если maxUserId НЕ в ADMIN_MAX_USER_IDS', async () => {
+    mockGetConfig.mockReturnValue({ ADMIN_MAX_USER_IDS: ['100', '200'] });
+    upsert.mockResolvedValue({ id: 1 });
+
+    await getOrCreateByMaxUser(maxUser({ user_id: 999 }));
+
+    const call = upsert.mock.calls[0][0];
+    expect(call.create.isAdmin).toBe(false);
+    expect(call.update.isAdmin).toBe(false);
   });
 });

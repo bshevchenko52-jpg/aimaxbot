@@ -10,7 +10,8 @@ import * as memoryService from '../services/memory.service';
 import * as subscriptionService from '../services/subscription.service';
 import * as userService from '../services/user.service';
 import { prisma } from '../db/prisma';
-import { mainMenu, subscribeHint, backToMenu } from './keyboards';
+import { mainMenu, subscribeHint, backToMenu, adminMenu, adminUserListNav, adminUserCard } from './keyboards';
+import * as adminService from '../services/admin.service';
 
 const MAX_SINGLE_MSG = 4000;
 
@@ -58,6 +59,19 @@ function payKeyboard(url: string) {
 }
 
 export function registerBot(bot: Bot): void {
+  const ADM_PAGE_SIZE = 10;
+
+  async function requireAdmin(ctx: Context): Promise<import('@prisma/client').User | null> {
+    try {
+      const maxUser = resolveMaxUser(ctx);
+      const user = await userService.getOrCreateByMaxUser(maxUser);
+      if (!user.isAdmin) return null;
+      return user;
+    } catch {
+      return null;
+    }
+  }
+
   bot.on('bot_started', async (ctx) => {
     try {
       const maxUser = resolveMaxUser(ctx);
@@ -360,6 +374,139 @@ export function registerBot(bot: Bot): void {
       log.error('callback status', e);
       // H3: отвечаем пользователю при ошибке
       await ctx.reply('Не удалось получить статус.').catch(() => undefined);
+    }
+  });
+
+  // ── Admin handlers ──────────────────────────────────────────────
+
+  bot.command('admin', async (ctx) => {
+    const user = await requireAdmin(ctx);
+    if (!user) return;
+    await ctx.reply('Админ-панель:', { attachments: [adminMenu()] });
+  });
+
+  bot.action('adm_menu', async (ctx) => {
+    await ctx.answerOnCallback({}).catch(() => undefined);
+    const user = await requireAdmin(ctx);
+    if (!user) return;
+    await ctx.reply('Админ-панель:', { attachments: [adminMenu()] });
+  });
+
+  bot.action('adm_stats', async (ctx) => {
+    await ctx.answerOnCallback({}).catch(() => undefined);
+    const user = await requireAdmin(ctx);
+    if (!user) return;
+    try {
+      const s = await adminService.getStats();
+      const text =
+        '**Статистика сервиса**\n\n' +
+        `Пользователей: **${s.totalUsers}**\n` +
+        `Активных Premium: **${s.activePremium}**\n` +
+        `Выручка (succeeded): **${s.totalRevenue.toFixed(2)} RUB**`;
+      await ctx.reply(text, { format: 'markdown', attachments: [adminMenu()] });
+    } catch (e) {
+      log.error('adm_stats', e);
+      await ctx.reply('Ошибка загрузки статистики.');
+    }
+  });
+
+  bot.action(/^adm_users_\d+$/, async (ctx) => {
+    await ctx.answerOnCallback({}).catch(() => undefined);
+    const user = await requireAdmin(ctx);
+    if (!user) return;
+    try {
+      const payload = ctx.callback?.payload ?? '';
+      const page = parseInt(payload.replace('adm_users_', ''), 10) || 0;
+      const { total, users } = await adminService.getUserList(page * ADM_PAGE_SIZE, ADM_PAGE_SIZE);
+      const totalPages = Math.max(1, Math.ceil(total / ADM_PAGE_SIZE));
+
+      if (users.length === 0) {
+        await ctx.reply('Пользователей нет.', { attachments: [adminMenu()] });
+        return;
+      }
+
+      const lines: string[] = [`**Пользователи** (стр. ${page + 1}/${totalPages}, всего ${total}):\n`];
+      for (const u of users) {
+        const plan = u.subscription?.isActive ? 'premium' : 'free';
+        const date = u.createdAt.toISOString().slice(0, 10);
+        lines.push(`${u.id}. **${u.name ?? '\u2014'}** | ${plan} | ${date}`);
+      }
+
+      const buttons = users.map((u) => [
+        Keyboard.button.callback(
+          `#${u.id} ${(u.name ?? '\u2014').slice(0, 25)}`,
+          `adm_user_${u.id}`,
+        ),
+      ]);
+
+      const nav: ReturnType<typeof Keyboard.button.callback>[] = [];
+      if (page > 0) nav.push(Keyboard.button.callback('<< Назад', `adm_users_${page - 1}`));
+      if (page < totalPages - 1) nav.push(Keyboard.button.callback('Вперёд >>', `adm_users_${page + 1}`));
+      if (nav.length > 0) buttons.push(nav);
+      buttons.push([Keyboard.button.callback('Админ-меню', 'adm_menu')]);
+
+      await ctx.reply(lines.join('\n'), {
+        format: 'markdown',
+        attachments: [Keyboard.inlineKeyboard(buttons)],
+      });
+    } catch (e) {
+      log.error('adm_users', e);
+      await ctx.reply('Ошибка загрузки пользователей.');
+    }
+  });
+
+  bot.action(/^adm_user_\d+$/, async (ctx) => {
+    await ctx.answerOnCallback({}).catch(() => undefined);
+    const admin = await requireAdmin(ctx);
+    if (!admin) return;
+    try {
+      const payload = ctx.callback?.payload ?? '';
+      const userId = parseInt(payload.replace('adm_user_', ''), 10);
+      if (!userId) return;
+
+      const card = await adminService.getUserCard(userId);
+      if (!card) {
+        await ctx.reply('Пользователь не найден.', { attachments: [adminMenu()] });
+        return;
+      }
+
+      const u = card.user;
+      const sub = u.subscription;
+      const plan = sub?.isActive ? 'premium' : 'free';
+      const expires = sub?.expiresAt ? sub.expiresAt.toISOString().slice(0, 10) : '\u2014';
+
+      const lines = [
+        `**Пользователь #${u.id}**\n`,
+        `**Имя:** ${u.name ?? '\u2014'}`,
+        `**Username:** ${u.username ?? '\u2014'}`,
+        `**maxUserId:** ${u.maxUserId}`,
+        `**Email:** ${u.email ?? '\u2014'}`,
+        `**Admin:** ${u.isAdmin ? 'да' : 'нет'}`,
+        `**Регистрация:** ${u.createdAt.toISOString().slice(0, 10)}`,
+        `**Тариф:** ${plan}`,
+        `**Premium до:** ${expires}`,
+        `**Символов сегодня:** ${u.dailyCharsUsed}`,
+        `**Всего оплачено:** ${card.totalPaid.toFixed(2)} RUB`,
+      ];
+
+      if (card.transactions.length > 0) {
+        lines.push('\n**Последние транзакции:**');
+        for (const t of card.transactions) {
+          const date = t.createdAt.toISOString().slice(0, 10);
+          const rec = t.recurring ? ' (авто)' : '';
+          lines.push(`${date} \u2014 ${t.amount} RUB \u2014 ${t.status}${rec}`);
+        }
+      } else {
+        lines.push('\nТранзакций нет.');
+      }
+
+      await ctx.reply(lines.join('\n'), {
+        format: 'markdown',
+        attachments: [adminUserCard()],
+      });
+    } catch (e) {
+      log.error('adm_user', e);
+      await ctx.reply('Ошибка загрузки карточки.');
     }
   });
 
