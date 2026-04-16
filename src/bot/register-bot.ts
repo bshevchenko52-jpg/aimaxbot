@@ -10,7 +10,7 @@ import * as memoryService from '../services/memory.service';
 import * as subscriptionService from '../services/subscription.service';
 import * as userService from '../services/user.service';
 import { prisma } from '../db/prisma';
-import { mainMenu, subscribeHint, backToMenu, adminMenu, adminUserListNav, adminUserCard } from './keyboards';
+import { mainMenu, subscribeHint, backToMenu, adminMenu, adminUserCard } from './keyboards';
 import * as adminService from '../services/admin.service';
 
 const MAX_SINGLE_MSG = 4000;
@@ -67,7 +67,8 @@ export function registerBot(bot: Bot): void {
       const user = await userService.getOrCreateByMaxUser(maxUser);
       if (!user.isAdmin) return null;
       return user;
-    } catch {
+    } catch (e) {
+      log.error('requireAdmin', e);
       return null;
     }
   }
@@ -380,16 +381,24 @@ export function registerBot(bot: Bot): void {
   // ── Admin handlers ──────────────────────────────────────────────
 
   bot.command('admin', async (ctx) => {
-    const user = await requireAdmin(ctx);
-    if (!user) return;
-    await ctx.reply('Админ-панель:', { attachments: [adminMenu()] });
+    try {
+      const user = await requireAdmin(ctx);
+      if (!user) return;
+      await ctx.reply('Админ-панель:', { attachments: [adminMenu()] });
+    } catch (e) {
+      log.error('/admin', e);
+    }
   });
 
   bot.action('adm_menu', async (ctx) => {
     await ctx.answerOnCallback({}).catch(() => undefined);
-    const user = await requireAdmin(ctx);
-    if (!user) return;
-    await ctx.reply('Админ-панель:', { attachments: [adminMenu()] });
+    try {
+      const user = await requireAdmin(ctx);
+      if (!user) return;
+      await ctx.reply('Админ-панель:', { attachments: [adminMenu()] });
+    } catch (e) {
+      log.error('adm_menu', e);
+    }
   });
 
   bot.action('adm_stats', async (ctx) => {
