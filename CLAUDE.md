@@ -64,6 +64,7 @@ ssh -i "C:/Keys/golfclub_key" root@72.56.241.185 "cd /opt/golfclub && docker com
 - **ЮKassa рекуррентные платежи**: `save_payment_method: true` закомментирован — магазин не одобрён ЮKassa. После одобрения раскомментировать в `src/payments/yookassa-client.ts:57`.
 - **Email для чеков**: бот запрашивает email у пользователя перед созданием платежа (54-ФЗ). Хранится в `User.email`. Без email рекуррентное автопродление пропускается с warn в лог.
 - **Пустые сессии**: `getRecentSessions()` фильтрует сессии без сообщений на уровне приложения (Prisma JSON-фильтр для пустых массивов ненадёжен).
+- **Админ-панель**: команда `/admin` доступна пользователям с `isAdmin=true`. Первые админы задаются через `ADMIN_MAX_USER_IDS` в env (список maxUserId через запятую). Флаг обновляется при каждом обращении к боту. Сервис: `src/services/admin.service.ts`.
 
 ## Cron-расписание (Europe/Moscow)
 

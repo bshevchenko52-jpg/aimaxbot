@@ -50,6 +50,7 @@ docker compose up -d --build
 | `SUBSCRIPTION_PRICE_RUB` | — | Цена подписки в рублях (default: `70`) |
 | `MAX_HISTORY_MESSAGES` | — | Пар сообщений в контексте LLM (default: `100`) |
 | `LOG_LEVEL` | — | Уровень логов: debug/info/warn/error (default: `info`) |
+| `ADMIN_MAX_USER_IDS` | — | maxUserId админов через запятую |
 
 ## Деплой на сервер (Ubuntu 22.04)
 
